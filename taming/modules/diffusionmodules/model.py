@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from einops import rearrange
-
+from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from taming.modules.attention import LinearAttention
 
 
@@ -363,6 +363,34 @@ class Model(nn.Module):
     def get_last_layer(self):
         return self.conv_out.weight
 
+
+class VQEncoder(nn.Module):
+    def __init__(self,
+                 ddconfig,
+                 n_embed,
+                 embed_dim,
+                 ckpt_path=None,
+                 ignore_keys=[],
+                 monitor=None,
+                 remap=None,
+                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw):
+                 ):
+        super().__init__()
+        self.encoder = Encoder(**ddconfig)
+
+        self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
+                                        remap=remap, sane_index_shape=sane_index_shape)
+        self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
+        if ckpt_path is not None:
+            self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+        if monitor is not None:
+            self.monitor = monitor
+
+    def forward(self, x):
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        quant, emb_loss, info = self.quantize(h)
+        return quant, emb_loss, info
 
 class Encoder(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,

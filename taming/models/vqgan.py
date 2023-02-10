@@ -7,7 +7,8 @@ from main import instantiate_from_config
 from taming.modules.diffusionmodules.model import Encoder, Decoder
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from taming.modules.vqvae.quantize import GumbelQuantize
-from taming.modules.vqvae.quantize import EMAVectorQuantizer
+# from taming.modules.vqvae.quantize import EMAVectorQuantizer
+
 
 class VQModel(pl.LightningModule):
     def __init__(self,
@@ -156,107 +157,25 @@ class VQModel(pl.LightningModule):
         return x
 
 
-class VQSegmentationModel(VQModel):
-    def __init__(self, n_labels, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_buffer("colorize", torch.randn(3, n_labels, 1, 1))
+class VQModelInterface(VQModel):
+    def __init__(self, embed_dim, *args, **kwargs):
+        super().__init__(embed_dim=embed_dim, *args, **kwargs)
+        self.embed_dim = embed_dim
 
-    def configure_optimizers(self):
-        lr = self.learning_rate
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
-                                  list(self.decoder.parameters())+
-                                  list(self.quantize.parameters())+
-                                  list(self.quant_conv.parameters())+
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr, betas=(0.5, 0.9))
-        return opt_ae
+    def encode(self, x):
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        return h
 
-    def training_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="train")
-        self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-        return aeloss
-
-    def validation_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, split="val")
-        self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-        total_loss = log_dict_ae["val/total_loss"]
-        self.log("val/total_loss", total_loss,
-                 prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        return aeloss
-
-    @torch.no_grad()
-    def log_images(self, batch, **kwargs):
-        log = dict()
-        x = self.get_input(batch, self.image_key)
-        x = x.to(self.device)
-        xrec, _ = self(x)
-        if x.shape[1] > 3:
-            # colorize with random projection
-            assert xrec.shape[1] > 3
-            # convert logits to indices
-            xrec = torch.argmax(xrec, dim=1, keepdim=True)
-            xrec = F.one_hot(xrec, num_classes=x.shape[1])
-            xrec = xrec.squeeze(1).permute(0, 3, 1, 2).float()
-            x = self.to_rgb(x)
-            xrec = self.to_rgb(xrec)
-        log["inputs"] = x
-        log["reconstructions"] = xrec
-        return log
-
-
-class VQNoDiscModel(VQModel):
-    def __init__(self,
-                 ddconfig,
-                 lossconfig,
-                 n_embed,
-                 embed_dim,
-                 ckpt_path=None,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None
-                 ):
-        super().__init__(ddconfig=ddconfig, lossconfig=lossconfig, n_embed=n_embed, embed_dim=embed_dim,
-                         ckpt_path=ckpt_path, ignore_keys=ignore_keys, image_key=image_key,
-                         colorize_nlabels=colorize_nlabels)
-
-    def training_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
-        # autoencode
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, self.global_step, split="train")
-        output = pl.TrainResult(minimize=aeloss)
-        output.log("train/aeloss", aeloss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        output.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-        return output
-
-    def validation_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, self.global_step, split="val")
-        rec_loss = log_dict_ae["val/rec_loss"]
-        output = pl.EvalResult(checkpoint_on=rec_loss)
-        output.log("val/rec_loss", rec_loss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        output.log("val/aeloss", aeloss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        output.log_dict(log_dict_ae)
-
-        return output
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(list(self.encoder.parameters())+
-                                  list(self.decoder.parameters())+
-                                  list(self.quantize.parameters())+
-                                  list(self.quant_conv.parameters())+
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=self.learning_rate, betas=(0.5, 0.9))
-        return optimizer
-
+    def decode(self, h, force_not_quantize=False):
+        # also go through quantization layer
+        if not force_not_quantize:
+            quant, emb_loss, info = self.quantize(h)
+        else:
+            quant = h
+        quant = self.post_quant_conv(quant)
+        dec = self.decoder(quant)
+        return dec
 
 class GumbelVQ(VQModel):
     def __init__(self,
@@ -363,42 +282,42 @@ class GumbelVQ(VQModel):
         return log
 
 
-class EMAVQ(VQModel):
-    def __init__(self,
-                 ddconfig,
-                 lossconfig,
-                 n_embed,
-                 embed_dim,
-                 ckpt_path=None,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None,
-                 monitor=None,
-                 remap=None,
-                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw
-                 ):
-        super().__init__(ddconfig,
-                         lossconfig,
-                         n_embed,
-                         embed_dim,
-                         ckpt_path=None,
-                         ignore_keys=ignore_keys,
-                         image_key=image_key,
-                         colorize_nlabels=colorize_nlabels,
-                         monitor=monitor,
-                         )
-        self.quantize = EMAVectorQuantizer(n_embed=n_embed,
-                                           embedding_dim=embed_dim,
-                                           beta=0.25,
-                                           remap=remap)
-    def configure_optimizers(self):
-        lr = self.learning_rate
-        #Remove self.quantize from parameter list since it is updated via EMA
-        opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
-                                  list(self.decoder.parameters())+
-                                  list(self.quant_conv.parameters())+
-                                  list(self.post_quant_conv.parameters()),
-                                  lr=lr, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []                                           
+# class EMAVQ(VQModel):
+#     def __init__(self,
+#                  ddconfig,
+#                  lossconfig,
+#                  n_embed,
+#                  embed_dim,
+#                  ckpt_path=None,
+#                  ignore_keys=[],
+#                  image_key="image",
+#                  colorize_nlabels=None,
+#                  monitor=None,
+#                  remap=None,
+#                  sane_index_shape=False,  # tell vector quantizer to return indices as bhw
+#                  ):
+#         super().__init__(ddconfig,
+#                          lossconfig,
+#                          n_embed,
+#                          embed_dim,
+#                          ckpt_path=None,
+#                          ignore_keys=ignore_keys,
+#                          image_key=image_key,
+#                          colorize_nlabels=colorize_nlabels,
+#                          monitor=monitor,
+#                          )
+#         self.quantize = EMAVectorQuantizer(n_embed=n_embed,
+#                                            embedding_dim=embed_dim,
+#                                            beta=0.25,
+#                                            remap=remap)
+#     def configure_optimizers(self):
+#         lr = self.learning_rate
+#         #Remove self.quantize from parameter list since it is updated via EMA
+#         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
+#                                   list(self.decoder.parameters())+
+#                                   list(self.quant_conv.parameters())+
+#                                   list(self.post_quant_conv.parameters()),
+#                                   lr=lr, betas=(0.5, 0.9))
+#         opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
+#                                     lr=lr, betas=(0.5, 0.9))
+#         return [opt_ae, opt_disc], []

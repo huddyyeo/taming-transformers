@@ -135,8 +135,8 @@ class ImageNetTrain(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetTrain/random_crop",
                                     default=True)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/mnt/local")
-        self.root = os.path.join(cachedir, "autoencoders/data", self.NAME)
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
+        self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
         self.expected_length = 1281167
@@ -194,9 +194,9 @@ class ImageNetValidation(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetValidation/random_crop",
                                     default=False)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/mnt/local")
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
 
-        self.root = os.path.join(cachedir, "autoencoders/data", self.NAME)
+        self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
         self.expected_length = 50000

@@ -7,7 +7,6 @@ from einops import repeat
 
 # from ldm.util import instantiate_from_config
 
-
 def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
     if schedule == "linear":
         betas = (
@@ -249,3 +248,8 @@ def avg_pool_nd(dims, *args, **kwargs):
 #         c_concat = self.concat_conditioner(c_concat)
 #         c_crossattn = self.crossattn_conditioner(c_crossattn)
 #         return {'c_concat': [c_concat], 'c_crossattn': [c_crossattn]}
+
+def noise_like(shape, device, repeat=False):
+    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
+    noise = lambda: torch.randn(shape, device=device)
+    return repeat_noise() if repeat else noise()

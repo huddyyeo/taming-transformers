@@ -17,6 +17,14 @@ def adopt_weight(weight, global_step, threshold=0, value=0.):
     return weight
 
 
+def l1(x, y):
+    return torch.abs(x-y)
+
+
+def l2(x, y):
+    return torch.pow((x-y), 2)
+
+
 def hinge_d_loss(logits_real, logits_fake):
     loss_real = torch.mean(F.relu(1. - logits_real))
     loss_fake = torch.mean(F.relu(1. + logits_fake))

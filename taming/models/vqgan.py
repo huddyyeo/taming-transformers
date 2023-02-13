@@ -6,7 +6,7 @@ from main import instantiate_from_config
 
 from taming.modules.diffusionmodules.model import Encoder, Decoder
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
-from taming.modules.vqvae.quantize import GumbelQuantize
+#from taming.modules.vqvae.quantize import GumbelQuantize
 # from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
 
@@ -81,10 +81,10 @@ class VQModel(pl.LightningModule):
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx=None):
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
-
+        optimizer_idx = 0 if optimizer_idx is None else optimizer_idx
         if optimizer_idx == 0:
             # autoencode
             aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
@@ -115,7 +115,6 @@ class VQModel(pl.LightningModule):
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
         self.log("val/aeloss", aeloss,
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
         return self.log_dict
 
@@ -127,9 +126,11 @@ class VQModel(pl.LightningModule):
                                   list(self.quant_conv.parameters())+
                                   list(self.post_quant_conv.parameters()),
                                   lr=lr, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []
+        # opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
+        #                             lr=lr, betas=(0.5, 0.9))
+        #return [opt_ae, opt_disc], []
+
+        return [opt_ae], []
 
     def get_last_layer(self):
         return self.decoder.conv_out.weight
@@ -177,110 +178,110 @@ class VQModelInterface(VQModel):
         dec = self.decoder(quant)
         return dec
 
-class GumbelVQ(VQModel):
-    def __init__(self,
-                 ddconfig,
-                 lossconfig,
-                 n_embed,
-                 embed_dim,
-                 temperature_scheduler_config,
-                 ckpt_path=None,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None,
-                 monitor=None,
-                 kl_weight=1e-8,
-                 remap=None,
-                 ):
-
-        z_channels = ddconfig["z_channels"]
-        super().__init__(ddconfig,
-                         lossconfig,
-                         n_embed,
-                         embed_dim,
-                         ckpt_path=None,
-                         ignore_keys=ignore_keys,
-                         image_key=image_key,
-                         colorize_nlabels=colorize_nlabels,
-                         monitor=monitor,
-                         )
-
-        self.loss.n_classes = n_embed
-        self.vocab_size = n_embed
-
-        self.quantize = GumbelQuantize(z_channels, embed_dim,
-                                       n_embed=n_embed,
-                                       kl_weight=kl_weight, temp_init=1.0,
-                                       remap=remap)
-
-        self.temperature_scheduler = instantiate_from_config(temperature_scheduler_config)   # annealing of temp
-
-        if ckpt_path is not None:
-            self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
-
-    def temperature_scheduling(self):
-        self.quantize.temperature = self.temperature_scheduler(self.global_step)
-
-    def encode_to_prequant(self, x):
-        h = self.encoder(x)
-        h = self.quant_conv(h)
-        return h
-
-    def decode_code(self, code_b):
-        raise NotImplementedError
-
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        self.temperature_scheduling()
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
-
-        if optimizer_idx == 0:
-            # autoencode
-            aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            self.log("temperature", self.quantize.temperature, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return aeloss
-
-        if optimizer_idx == 1:
-            # discriminator
-            discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return discloss
-
-    def validation_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x, return_pred_indices=True)
-        aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                        last_layer=self.get_last_layer(), split="val")
-
-        discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
-        rec_loss = log_dict_ae["val/rec_loss"]
-        self.log("val/rec_loss", rec_loss,
-                 prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
-        self.log("val/aeloss", aeloss,
-                 prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
-        self.log_dict(log_dict_ae)
-        self.log_dict(log_dict_disc)
-        return self.log_dict
-
-    def log_images(self, batch, **kwargs):
-        log = dict()
-        x = self.get_input(batch, self.image_key)
-        x = x.to(self.device)
-        # encode
-        h = self.encoder(x)
-        h = self.quant_conv(h)
-        quant, _, _ = self.quantize(h)
-        # decode
-        x_rec = self.decode(quant)
-        log["inputs"] = x
-        log["reconstructions"] = x_rec
-        return log
-
+# class GumbelVQ(VQModel):
+#     def __init__(self,
+#                  ddconfig,
+#                  lossconfig,
+#                  n_embed,
+#                  embed_dim,
+#                  temperature_scheduler_config,
+#                  ckpt_path=None,
+#                  ignore_keys=[],
+#                  image_key="image",
+#                  colorize_nlabels=None,
+#                  monitor=None,
+#                  kl_weight=1e-8,
+#                  remap=None,
+#                  ):
+#
+#         z_channels = ddconfig["z_channels"]
+#         super().__init__(ddconfig,
+#                          lossconfig,
+#                          n_embed,
+#                          embed_dim,
+#                          ckpt_path=None,
+#                          ignore_keys=ignore_keys,
+#                          image_key=image_key,
+#                          colorize_nlabels=colorize_nlabels,
+#                          monitor=monitor,
+#                          )
+#
+#         self.loss.n_classes = n_embed
+#         self.vocab_size = n_embed
+#
+#         self.quantize = GumbelQuantize(z_channels, embed_dim,
+#                                        n_embed=n_embed,
+#                                        kl_weight=kl_weight, temp_init=1.0,
+#                                        remap=remap)
+#
+#         self.temperature_scheduler = instantiate_from_config(temperature_scheduler_config)   # annealing of temp
+#
+#         if ckpt_path is not None:
+#             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
+#
+#     def temperature_scheduling(self):
+#         self.quantize.temperature = self.temperature_scheduler(self.global_step)
+#
+#     def encode_to_prequant(self, x):
+#         h = self.encoder(x)
+#         h = self.quant_conv(h)
+#         return h
+#
+#     def decode_code(self, code_b):
+#         raise NotImplementedError
+#
+#     def training_step(self, batch, batch_idx, optimizer_idx):
+#         self.temperature_scheduling()
+#         x = self.get_input(batch, self.image_key)
+#         xrec, qloss = self(x)
+#
+#         if optimizer_idx == 0:
+#             # autoencode
+#             aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+#                                             last_layer=self.get_last_layer(), split="train")
+#
+#             self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+#             self.log("temperature", self.quantize.temperature, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+#             return aeloss
+#
+#         if optimizer_idx == 1:
+#             # discriminator
+#             discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+#                                             last_layer=self.get_last_layer(), split="train")
+#             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+#             return discloss
+#
+#     def validation_step(self, batch, batch_idx):
+#         x = self.get_input(batch, self.image_key)
+#         xrec, qloss = self(x, return_pred_indices=True)
+#         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+#                                         last_layer=self.get_last_layer(), split="val")
+#
+#         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
+#                                             last_layer=self.get_last_layer(), split="val")
+#         rec_loss = log_dict_ae["val/rec_loss"]
+#         self.log("val/rec_loss", rec_loss,
+#                  prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
+#         self.log("val/aeloss", aeloss,
+#                  prog_bar=True, logger=True, on_step=False, on_epoch=True, sync_dist=True)
+#         self.log_dict(log_dict_ae)
+#         self.log_dict(log_dict_disc)
+#         return self.log_dict
+#
+#     def log_images(self, batch, **kwargs):
+#         log = dict()
+#         x = self.get_input(batch, self.image_key)
+#         x = x.to(self.device)
+#         # encode
+#         h = self.encoder(x)
+#         h = self.quant_conv(h)
+#         quant, _, _ = self.quantize(h)
+#         # decode
+#         x_rec = self.decode(quant)
+#         log["inputs"] = x
+#         log["reconstructions"] = x_rec
+#         return log
+#
 
 # class EMAVQ(VQModel):
 #     def __init__(self,

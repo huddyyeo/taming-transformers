@@ -10,7 +10,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
-
+import wandb
 from taming.data.utils import custom_collate
 
 
@@ -231,7 +231,6 @@ class ImageLogger(Callback):
 
     @rank_zero_only
     def _wandb(self, pl_module, images, batch_idx, split):
-        raise ValueError("No way wandb")
         grids = dict()
         for k in images:
             grid = torchvision.utils.make_grid(images[k])
@@ -460,11 +459,18 @@ if __name__ == "__main__":
                     "save_dir": logdir,
                 }
             },
+            "tensorboard": {
+                "target": "pytorch_lightning.loggers.TensorBoardLogger",
+                "params": {
+                    "name": nowname,
+                    "save_dir": logdir,
+                }
+            },
         }
-        default_logger_cfg = default_logger_cfgs["testtube"]
+        default_logger_cfg = default_logger_cfgs["wandb"]
         logger_cfg = lightning_config.logger or OmegaConf.create()
         logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
-        trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
+        trainer_kwargs["logger"] = instantiate_from_config(default_logger_cfg)
 
         # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
         # specify which metric is used to determine best models
@@ -571,11 +577,11 @@ if __name__ == "__main__":
         if opt.train:
             try:
                 trainer.fit(model, data)
-            except Exception:
+            except Exception as e:
                 melk()
                 raise
         if not opt.no_test and not trainer.interrupted:
-            trainer.test(model, data)
+            trainer.validate(model, data)
     except Exception:
         if opt.debug and trainer.global_rank==0:
             try:

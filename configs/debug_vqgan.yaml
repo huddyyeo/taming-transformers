@@ -28,8 +28,8 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 12
-    num_workers: 24
+    batch_size: 2
+    num_workers: 0
     train:
       target: taming.data.imagenet.ImageNetTrain
       params:
@@ -40,3 +40,8 @@ data:
       params:
         config:
           size: 256
+lightning:
+  trainer:
+    max_steps: 5
+    gpus: 1
+#    device: 1

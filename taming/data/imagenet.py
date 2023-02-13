@@ -100,22 +100,22 @@ class ImageNetBase(Dataset):
 
         unique_synsets = np.unique(self.synsets)
         class_dict = dict((synset, i) for i, synset in enumerate(unique_synsets))
-        self.class_labels = [class_dict[s] for s in self.synsets]
+        #self.class_labels = [class_dict[s] for s in self.synsets]
 
-        with open(self.human_dict, "r") as f:
-            human_dict = f.read().splitlines()
-            human_dict = dict(line.split(maxsplit=1) for line in human_dict)
+        # with open(self.human_dict, "r") as f:
+        #     human_dict = f.read().splitlines()
+        #     human_dict = dict(line.split(maxsplit=1) for line in human_dict)
 
-        self.human_labels = [human_dict[s] for s in self.synsets]
+        #self.human_labels = [human_dict[s] for s in self.synsets]
 
-        labels = {
-            "relpath": np.array(self.relpaths),
-            "synsets": np.array(self.synsets),
-            "class_label": np.array(self.class_labels),
-            "human_label": np.array(self.human_labels),
-        }
+        # labels = {
+        #     "relpath": np.array(self.relpaths),
+        #     "synsets": np.array(self.synsets),
+        #     "class_label": np.array(self.class_labels),
+        #     "human_label": np.array(self.human_labels),
+        # }
         self.data = ImagePaths(self.abspaths,
-                               labels=labels,
+                               labels=None,
                                size=retrieve(self.config, "size", default=0),
                                random_crop=self.random_crop)
 
@@ -140,6 +140,7 @@ class ImageNetTrain(ImageNetBase):
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
         self.expected_length = 1281167
+
         if not bdu.is_prepared(self.root):
             # prep
             print("Preparing dataset {} in {}".format(self.NAME, self.root))
@@ -200,6 +201,7 @@ class ImageNetValidation(ImageNetBase):
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
         self.expected_length = 50000
+
         if not bdu.is_prepared(self.root):
             # prep
             print("Preparing dataset {} in {}".format(self.NAME, self.root))
@@ -234,7 +236,7 @@ class ImageNetValidation(ImageNetBase):
                     dst = os.path.join(datadir, v)
                     shutil.move(src, dst)
 
-            filelist = glob.glob(os.path.join(datadir, "**", "*.JPEG"))
+            filelist = glob.glob(os.path.join(datadir, "*.JPEG"))
             filelist = [os.path.relpath(p, start=datadir) for p in filelist]
             filelist = sorted(filelist)
             filelist = "\n".join(filelist)+"\n"

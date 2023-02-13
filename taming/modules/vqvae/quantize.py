@@ -329,6 +329,76 @@ class VectorQuantizer2(nn.Module):
         return z_q
 
 
+class SamplingQuantizer(VectorQuantizer2):
+    """
+    Improved version over VectorQuantizer2 with L2 norm and top k.
+    """
+    def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
+                 sane_index_shape=False, legacy=True):
+        super().__init__(n_e, e_dim, beta, remap=remap, unknown_index=unknown_index,
+                         sane_index_shape=sane_index_shape, legacy=legacy)
+
+    def normalise(self, z):
+        return torch.nn.functional.normalize(z,dim=-1)
+
+    def forward(self, z, temp=None, rescale_logits=False, return_logits=False, sample=True):
+        assert temp is None or temp==1.0, "Only for interface compatible with Gumbel"
+        assert rescale_logits==False, "Only for interface compatible with Gumbel"
+        assert return_logits==False, "Only for interface compatible with Gumbel"
+        # reshape z -> (batch, height, width, channel) and flatten
+        z = rearrange(z, 'b c h w -> b h w c').contiguous()
+        z_flattened = z.view(-1, self.e_dim)
+
+        z_search = self.normalise(z_flattened)
+        normalized_embedding = self.normalise(self.embedding.weight)
+
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+        d = torch.sum(z_search ** 2, dim=1, keepdim=True) + \
+            torch.sum(normalized_embedding **2, dim=1) - 2 * \
+            torch.einsum('bd,dn->bn', z_search, rearrange(normalized_embedding, 'n d -> d n'))
+
+        if sample and self.training:
+            logits = 1 / d.clamp(min=1e-8) # dist may go close to 0
+            logits = logits - logits.amax(dim=-1, keepdim=True).detach()  # numerical stability for softmax
+            v, _ = torch.topk(logits,16,dim=-1)
+            min_logit_per_token = v.min(-1)[0].unsqueeze(-1)
+            min_logit_per_token = min_logit_per_token.repeat(1,logits.shape[-1])
+            logits[logits<min_logit_per_token] = -float('Inf')
+
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            min_encoding_indices = torch.multinomial(probs, num_samples=1).squeeze()
+        else:
+            min_encoding_indices = torch.argmin(d, dim=1)
+
+        z_q = self.embedding(min_encoding_indices).view(z.shape)
+        perplexity = None
+        min_encodings = None
+
+        # compute loss for embedding
+        if not self.legacy:
+            loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
+                   torch.mean((z_q - z.detach()) ** 2)
+        else:
+            loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+                   torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
+
+        # reshape back to match original input shape
+        z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
+
+        if self.remap is not None:
+            min_encoding_indices = min_encoding_indices.reshape(z.shape[0],-1) # add batch axis
+            min_encoding_indices = self.remap_to_used(min_encoding_indices)
+            min_encoding_indices = min_encoding_indices.reshape(-1,1) # flatten
+
+        if self.sane_index_shape:
+            min_encoding_indices = min_encoding_indices.reshape(
+                z_q.shape[0], z_q.shape[2], z_q.shape[3])
+
+        return z_q, loss, (perplexity, min_encodings, min_encoding_indices)
+
 class EmbeddingEMA(nn.Module):
     def __init__(self, num_tokens, codebook_dim, decay=0.99, eps=1e-5):
         super().__init__()

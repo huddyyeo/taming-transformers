@@ -233,7 +233,7 @@ class ImageLogger(Callback):
     def _wandb(self, pl_module, images, batch_idx, split):
         grids = dict()
         for k in images:
-            grid = torchvision.utils.make_grid(images[k])
+            grid = torchvision.utils.make_grid(images[k].clamp(-1,1),normalize=True,value_range=(-1,1))
             grids[f"{split}/{k}"] = wandb.Image(grid)
         pl_module.logger.experiment.log(grids)
 
@@ -293,7 +293,7 @@ class ImageLogger(Callback):
             self.log_local(pl_module.logger.save_dir, split, images,
                            pl_module.global_step, pl_module.current_epoch, batch_idx)
 
-            logger_log_images = self.logger_log_images.get(logger, lambda *args, **kwargs: None)
+            logger_log_images = self.logger_log_images.get(logger,lambda *args, **kwargs: None)
             logger_log_images(pl_module, images, pl_module.global_step, split)
 
             if is_train:

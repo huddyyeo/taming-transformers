@@ -40,3 +40,11 @@ data:
       params:
         config:
           size: 256
+
+lightning:
+  trainer:
+    max_steps: 20
+    gpus: 1
+    val_check_interval: 5
+    limit_val_batches: 2
+    log_every_n_steps: 1

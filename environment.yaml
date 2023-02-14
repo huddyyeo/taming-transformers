@@ -22,4 +22,6 @@ dependencies:
     - einops==0.3.0
     - more-itertools>=8.0.0
     - transformers==4.11.3
+    - torchmetrics==0.10.0
+    - torch-fidelity==0.3.0
     - -e .

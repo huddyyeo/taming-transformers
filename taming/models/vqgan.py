@@ -5,10 +5,12 @@ import pytorch_lightning as pl
 from main import instantiate_from_config
 
 from taming.modules.diffusionmodules.model import Encoder, Decoder
+from taming.modules.metrics.metrics import FIDMetric, InceptionMetric, CodebookUsageMetric
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 #from taming.modules.vqvae.quantize import GumbelQuantize
 # from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
+import torchmetrics
 
 class VQModel(pl.LightningModule):
     def __init__(self,
@@ -42,6 +44,12 @@ class VQModel(pl.LightningModule):
         if monitor is not None:
             self.monitor = monitor
 
+        self.metrics_dict = torch.nn.ModuleDict({"PSNR":torchmetrics.PeakSignalNoiseRatio(data_range=1.0),
+                             "FID":FIDMetric(),
+                             #"Inception":InceptionMetric()
+                            "CodebookUsage":CodebookUsageMetric(n_embed),
+                            })
+
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")["state_dict"]
         keys = list(sd.keys())
@@ -58,6 +66,7 @@ class VQModel(pl.LightningModule):
         h = self.quant_conv(h)
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
+
 
     def decode(self, quant):
         quant = self.post_quant_conv(quant)
@@ -116,7 +125,24 @@ class VQModel(pl.LightningModule):
         self.log("val/aeloss", aeloss,
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
         self.log_dict(log_dict_disc)
+        tokens = self.encode(x)[-1][2]
+        xrec = self.normalize(xrec.clone())
+        x = self.normalize(x.clone())
+
+        for key_i, metric_i in self.metrics_dict.items():
+            if  isinstance(metric_i,CodebookUsageMetric):
+
+                metric_i.update(tokens)
+            else:
+                metric_i.update(xrec,x)
+            self.log('val_%s' % (key_i), metric_i.compute(),
+                     prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
+            metric_i.reset()
+
         return self.log_dict
+
+    def normalize(self,x):
+        return (x.clamp(-1,1)+1)/2
 
     def configure_optimizers(self):
         lr = self.learning_rate

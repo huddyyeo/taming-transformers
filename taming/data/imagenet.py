@@ -12,6 +12,10 @@ from taming.util import download, retrieve
 import taming.data.utils as bdu
 
 
+"""
+Downloaded imagenet from https://towardsdatascience.com/downloading-and-using-the-imagenet-dataset-with-pytorch-f0908437c4be
+"""
+
 def give_synsets_from_indices(indices, path_to_yaml="data/imagenet_idx_to_synset.yaml"):
     synsets = []
     with open(path_to_yaml) as f:

@@ -43,8 +43,7 @@ data:
 
 lightning:
   trainer:
-    max_steps: 20
-    gpus: 1
-    val_check_interval: 5
-    limit_val_batches: 2
-    log_every_n_steps: 1
+    max_steps: 200000
+    gpus: '2,3,4,5'
+    val_check_interval: 10000
+    log_every_n_steps: 100

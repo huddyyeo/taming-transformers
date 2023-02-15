@@ -10,7 +10,6 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
-import wandb
 from taming.data.utils import custom_collate
 
 
@@ -163,16 +162,16 @@ class DataModuleFromConfig(pl.LightningDataModule):
 
     def _train_dataloader(self):
         return DataLoader(self.datasets["train"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate)
+                          num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
     def _val_dataloader(self):
         return DataLoader(self.datasets["validation"],
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
     def _test_dataloader(self):
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
 
 class SetupCallback(Callback):
@@ -204,15 +203,16 @@ class SetupCallback(Callback):
                            os.path.join(self.cfgdir, "{}-lightning.yaml".format(self.now)))
 
         else:
-            # ModelCheckpoint callback created log directory --- remove it
-            if not self.resume and os.path.exists(self.logdir):
-                dst, name = os.path.split(self.logdir)
-                dst = os.path.join(dst, "child_runs", name)
-                os.makedirs(os.path.split(dst)[0], exist_ok=True)
-                try:
-                    os.rename(self.logdir, dst)
-                except FileNotFoundError:
-                    pass
+            pass
+            # # ModelCheckpoint callback created log directory --- remove it
+            # if not self.resume and os.path.exists(self.logdir):
+            #     dst, name = os.path.split(self.logdir)
+            #     dst = os.path.join(dst, "child_runs", name)
+            #     os.makedirs(os.path.split(dst)[0], exist_ok=True)
+            #     try:
+            #         os.rename(self.logdir, dst)
+            #     except FileNotFoundError:
+            #         pass
 
 
 class ImageLogger(Callback):
@@ -308,15 +308,16 @@ class ImageLogger(Callback):
             return True
         return False
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        self.log_img(pl_module, batch, batch_idx, split="train")
-
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        self.log_img(pl_module, batch, batch_idx, split="val")
+    # def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    #     self.log_img(pl_module, batch, batch_idx, split="train")
+    #
+    # def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    #     self.log_img(pl_module, batch, batch_idx, split="val")
 
 
 
 if __name__ == "__main__":
+
     # custom parser to specify config files, train, test and debug mode,
     # postfix, resume.
     # `--key value` arguments are interpreted as arguments to the trainer.
@@ -369,6 +370,7 @@ if __name__ == "__main__":
     parser = Trainer.add_argparse_args(parser)
 
     opt, unknown = parser.parse_known_args()
+
     if opt.name and opt.resume:
         raise ValueError(
             "-n/--name and -r/--resume cannot be specified both."
@@ -467,9 +469,9 @@ if __name__ == "__main__":
                 }
             },
         }
-        default_logger_cfg = default_logger_cfgs["wandb"]
-        logger_cfg = lightning_config.logger or OmegaConf.create()
-        logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
+        default_logger_cfg = default_logger_cfgs["tensorboard"]
+        #logger_cfg = lightning_config.logger or OmegaConf.create()
+        #logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
         trainer_kwargs["logger"] = instantiate_from_config(default_logger_cfg)
 
         # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
@@ -481,16 +483,17 @@ if __name__ == "__main__":
                 "filename": "{epoch:06}",
                 "verbose": True,
                 "save_last": True,
+                "every_n_train_steps":10000,
             }
         }
         if hasattr(model, "monitor"):
             print(f"Monitoring {model.monitor} as checkpoint metric.")
             default_modelckpt_cfg["params"]["monitor"] = model.monitor
-            default_modelckpt_cfg["params"]["save_top_k"] = 3
+            #default_modelckpt_cfg["params"]["save_top_k"] = 3
 
         modelckpt_cfg = lightning_config.modelcheckpoint or OmegaConf.create()
         modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
-        trainer_kwargs["checkpoint_callback"] = instantiate_from_config(modelckpt_cfg)
+        trainer_kwargs["enable_checkpointing"] = instantiate_from_config(modelckpt_cfg)
 
         # add callback which sets up log directory
         default_callbacks_cfg = {
@@ -526,7 +529,7 @@ if __name__ == "__main__":
         callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
 
-        trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+        trainer = Trainer.from_argparse_args(trainer_opt, accelerator='gpu', **trainer_kwargs)
 
         # data
         data = instantiate_from_config(config.data)
@@ -563,26 +566,27 @@ if __name__ == "__main__":
                 if trainer.model is None:
                     print("Trainer model is None")
                 else:
+                    print("Saved checkpoint at ", ckpt_path)
                     trainer.save_checkpoint(ckpt_path)
+        #
+        # def divein(*args, **kwargs):
+        #     if trainer.global_rank == 0:
+        #         import pudb; pudb.set_trace()
 
-        def divein(*args, **kwargs):
-            if trainer.global_rank == 0:
-                import pudb; pudb.set_trace()
-
-        import signal
-        signal.signal(signal.SIGUSR1, melk)
-        signal.signal(signal.SIGUSR2, divein)
-
+        # import signal
+        # signal.signal(signal.SIGUSR1, melk)
+        #signal.signal(signal.SIGUSR2, divein)
         # run
         if opt.train:
             try:
                 trainer.fit(model, data)
             except Exception as e:
                 melk()
-                raise
+                raise e
         if not opt.no_test and not trainer.interrupted:
             trainer.validate(model, data)
     except Exception:
+        print('exception', os.path.exists('logs'))
         if opt.debug and trainer.global_rank==0:
             try:
                 import pudb as debugger
@@ -590,6 +594,7 @@ if __name__ == "__main__":
                 import pdb as debugger
             debugger.post_mortem()
         raise
+
     finally:
         # move newly created debug project to debug_runs
         if opt.debug and not opt.resume and trainer.global_rank==0:

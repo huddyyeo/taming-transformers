@@ -48,8 +48,8 @@ class ImageNetBase(Dataset):
         if not type(self.config)==dict:
             self.config = OmegaConf.to_container(self.config)
         self._prepare()
-        self._prepare_synset_to_human()
-        self._prepare_idx_to_synset()
+        #self._prepare_synset_to_human()
+        #self._prepare_idx_to_synset()
         self._load()
 
     def __len__(self):
@@ -95,15 +95,15 @@ class ImageNetBase(Dataset):
     def _load(self):
         with open(self.txt_filelist, "r") as f:
             self.relpaths = f.read().splitlines()
-            l1 = len(self.relpaths)
-            self.relpaths = self._filter_relpaths(self.relpaths)
-            print("Removed {} files from filelist during filtering.".format(l1 - len(self.relpaths)))
+            #l1 = len(self.relpaths)
+            #self.relpaths = self._filter_relpaths(self.relpaths)
+            #print("Removed {} files from filelist during filtering.".format(l1 - len(self.relpaths)))
 
         self.synsets = [p.split("/")[0] for p in self.relpaths]
         self.abspaths = [os.path.join(self.datadir, p) for p in self.relpaths]
 
-        unique_synsets = np.unique(self.synsets)
-        class_dict = dict((synset, i) for i, synset in enumerate(unique_synsets))
+        #unique_synsets = np.unique(self.synsets)
+        #class_dict = dict((synset, i) for i, synset in enumerate(unique_synsets))
         #self.class_labels = [class_dict[s] for s in self.synsets]
 
         # with open(self.human_dict, "r") as f:

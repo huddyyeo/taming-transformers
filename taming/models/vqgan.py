@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
@@ -121,23 +122,27 @@ class VQModel(pl.LightningModule):
                                             last_layer=self.get_last_layer(), split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
         self.log("val/rec_loss", rec_loss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
+                   prog_bar=False, logger=True,  sync_dist=False)
         self.log("val/aeloss", aeloss,
-                   prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
+                   prog_bar=False, logger=True, sync_dist=False)
         self.log_dict(log_dict_disc)
         tokens = self.encode(x)[-1][2]
         xrec = self.normalize(xrec.clone())
         x = self.normalize(x.clone())
 
+        img = torch.cat([xrec,x],dim=-2)
+        img = (img.cpu().numpy()*255).astype(np.uint8)
+        img = np.moveaxis(img, 1, -1)
+        self.logger.experiment.add_images('val_images', img, self.global_step, dataformats='NHWC')
+        # self.logger.log_metrics({'val_images':wandb.Image(img)},self.global_step)
+
         for key_i, metric_i in self.metrics_dict.items():
             if  isinstance(metric_i,CodebookUsageMetric):
-
                 metric_i.update(tokens)
             else:
                 metric_i.update(xrec,x)
-            self.log('val_%s' % (key_i), metric_i.compute(),
-                     prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-            metric_i.reset()
+            self.log('val_%s' % (key_i), metric_i,
+                     prog_bar=True, add_dataloader_idx=False)
 
         return self.log_dict
 
@@ -152,11 +157,11 @@ class VQModel(pl.LightningModule):
                                   list(self.quant_conv.parameters())+
                                   list(self.post_quant_conv.parameters()),
                                   lr=lr, betas=(0.5, 0.9))
-        # opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-        #                             lr=lr, betas=(0.5, 0.9))
-        #return [opt_ae, opt_disc], []
+        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
+                                    lr=lr, betas=(0.5, 0.9))
+        return [opt_ae, opt_disc], []
 
-        return [opt_ae], []
+        # return [opt_ae], []
 
     def get_last_layer(self):
         return self.decoder.conv_out.weight

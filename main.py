@@ -433,8 +433,26 @@ if __name__ == "__main__":
         trainer_opt = argparse.Namespace(**trainer_config)
         lightning_config.trainer = trainer_config
 
-        # model
-        model = instantiate_from_config(config.model)
+        if lightning_config.modelcheckpoint is not None:
+            cfg_path = os.path.join(lightning_config.modelcheckpoint,'configs/model.yaml')
+            modelckpt_cfg =  OmegaConf.load(cfg_path)
+            config.model = modelckpt_cfg['model']
+            model = instantiate_from_config(config.model)
+
+            ckpt_path = os.path.join(lightning_config.modelcheckpoint, 'ckpts/last.ckpt')
+            ckpt = torch.load(ckpt_path)
+            ckpt_sd = ckpt['state_dict']
+            model_sd = model.state_dict()
+            missing_keys = [i for i in model_sd.keys() if i not in ckpt_sd.keys()]
+
+            if len(missing_keys)>0:
+                for key in missing_keys: ckpt_sd[key] = model_sd[key]
+                print(f"Initialised from checkpoint, replaced {len(missing_keys)} missing keys pertaining to ", np.unique([i.split('.')[0] for i in missing_keys]).tolist())
+            model.load_state_dict(ckpt['state_dict'],strict=False)
+
+        else:
+            modelckpt_cfg = OmegaConf.create()
+            model = instantiate_from_config(config.model)
 
         # trainer and callbacks
         trainer_kwargs = dict()
@@ -491,7 +509,6 @@ if __name__ == "__main__":
             default_modelckpt_cfg["params"]["monitor"] = model.monitor
             #default_modelckpt_cfg["params"]["save_top_k"] = 3
 
-        modelckpt_cfg = lightning_config.modelcheckpoint or OmegaConf.create()
         modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
         trainer_kwargs["enable_checkpointing"] = instantiate_from_config(modelckpt_cfg)
 
@@ -585,14 +602,14 @@ if __name__ == "__main__":
                 raise e
         if not opt.no_test and not trainer.interrupted:
             trainer.validate(model, data)
-    except Exception:
-        print('exception', os.path.exists('logs'))
+    except Exception as e:
+        print('exception',e)
         if opt.debug and trainer.global_rank==0:
             try:
                 import pudb as debugger
             except ImportError:
                 import pdb as debugger
-            debugger.post_mortem()
+                pdb.set_trace()
         raise
 
     finally:

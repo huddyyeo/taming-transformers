@@ -18,17 +18,17 @@ model:
         image_size: 256
         in_channels: 3
         out_channels: 3
-        model_channels: 128
+        model_channels: 64
         attention_resolutions:
-        - 2
         - 4
         - 8
+        - 16
         num_res_blocks: 1
         channel_mult:
         - 1
         - 2
-        - 2
         - 4
+        - 8
         num_head_channels: 32
         use_spatial_transformer: false
         transformer_depth: 1
@@ -69,7 +69,7 @@ data:
 
 lightning:
   trainer:
-    max_steps: 200000
+    max_epochs: 5
     gpus: '2,3,4,5'
     val_check_interval: 20000
     log_every_n_steps: 100

@@ -296,14 +296,14 @@ class AttentionBlock(nn.Module):
         self.channels = channels
         self.use_linear = use_linear
         if num_head_channels == -1:
-            self.num_heads = num_heads
+            raise ValueError("num_head_channels cannot be -1")
         else:
             assert (
                 channels % num_head_channels == 0
             ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
             self.num_heads = channels // num_head_channels
         if self.use_linear:
-            self.attention = LinearAttention(channels, heads=4, dim_head=32)
+            self.attention = LinearAttention(channels, heads=num_heads, dim_head=num_head_channels)
         else:
             self.use_checkpoint = use_checkpoint
             self.norm = normalization(channels)
@@ -465,8 +465,8 @@ class UNetModel(nn.Module):
         dims=2,
         use_checkpoint=False,
         use_fp16=False,
-        num_heads=1,
-        num_head_channels=-1,
+        num_heads=4,
+        num_head_channels=32,
         num_heads_upsample=-1,
         use_scale_shift_norm=False,
         resblock_updown=False,

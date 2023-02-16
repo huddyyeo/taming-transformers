@@ -141,8 +141,8 @@ class VQModel(pl.LightningModule):
                 metric_i.update(tokens)
             else:
                 metric_i.update(xrec,x)
-            self.log('val_%s' % (key_i), metric_i,
-                     prog_bar=True, add_dataloader_idx=False)
+            self.log('val_%s' % (key_i), metric_i,on_epoch=True,
+                     prog_bar=True, add_dataloader_idx=False, sync_dist=True)
 
         return self.log_dict
 

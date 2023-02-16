@@ -1,6 +1,7 @@
 model:
   base_learning_rate: 1.0e-06
-  target: ldm.models.diffusion.ddpm.VQDiffusion
+  target: taming.modules.diffusionmodules.vq_diffusion.VQDiffusion
+
   params:
     linear_start: 0.0015
     linear_end: 0.0195
@@ -9,31 +10,32 @@ model:
     timesteps: 1000
     image_size: 256
     channels: 3
-    conditioning_key: crossattn
+    conditioning_key: cat_init
     monitor: val/loss_simple_ema
+    ddim_timesteps: 10
     unet_config:
-      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      target: taming.modules.diffusionmodules.openaimodel.UNetModel
       params:
-        image_size: 32
-        in_channels: 4
-        out_channels: 4
-        model_channels: 128
+        image_size: 256
+        in_channels: 3
+        out_channels: 3
+        model_channels: 64
         attention_resolutions:
-        - 2
         - 4
+        - 2
         - 8
-        num_res_blocks: 2
+        num_res_blocks: 1
         channel_mult:
         - 1
         - 2
         - 4
         - 4
         num_head_channels: 32
-        use_spatial_transformer: true
+        use_spatial_transformer: false
         transformer_depth: 1
         context_dim: 32
     encoder_config:
-      target: ldm.models.autoencoder.VQEncoder
+      target: taming.modules.diffusionmodules.model.VQEncoder
       params:
         embed_dim: 32
         n_embed: 8096
@@ -43,7 +45,7 @@ model:
           resolution: 256
           in_channels: 3
           out_ch: 3
-          ch: 128
+          ch: 64
           ch_mult: [ 1,1,2,2,4]
           num_res_blocks: 2
           attn_resolutions: [16]
@@ -52,17 +54,24 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 64
-    num_workers: 12
+    batch_size: 2
+    num_workers: 0
     wrap: false
     train:
-      target: ldm.data.imagenet.ImageNetTrain
+      target: taming.data.imagenet.ImageNetTrain
       params:
         config:
           size: 256
     validation:
-      target: ldm.data.imagenet.ImageNetValidation
+      target: taming.data.imagenet.ImageNetValidation
       params:
         config:
           size: 256
 
+lightning:
+  trainer:
+    max_steps: 5
+    gpus: '1,'
+    val_check_interval: 5
+    limit_val_batches: 2
+    log_every_n_steps: 1

@@ -28,8 +28,8 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 12
-    num_workers: 24
+    batch_size:  64
+    num_workers: 64
     train:
       target: taming.data.imagenet.ImageNetTrain
       params:
@@ -43,5 +43,6 @@ data:
 
 lightning:
   trainer:
-    gpus: '1'
+    gpus: '1,'
+    log_every_n_steps: 1
   modelcheckpoint: '/home/hudson/taming/logs/vqgan_imagenet_f16_16384'

@@ -365,7 +365,7 @@ class SamplingQuantizer(VectorQuantizer2):
             min_logit_per_token = min_logit_per_token.repeat(1,logits.shape[-1])
             logits[logits<min_logit_per_token] = -float('Inf')
 
-            probs = torch.nn.functional.softmax(logits, dim=-1)
+            probs = torch.nn.functional.softmax(logits/0.5, dim=-1)
             min_encoding_indices = torch.multinomial(probs, num_samples=1).squeeze()
         else:
             min_encoding_indices = torch.argmin(d, dim=1)

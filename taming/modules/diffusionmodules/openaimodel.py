@@ -725,19 +725,8 @@ class UNetModel(nn.Module):
         assert not torch.isnan(h).any()
         for module in self.output_blocks:
             h = th.cat([h, hs.pop()], dim=1)
-            h2=h.clone()
             h = module(h, emb, conditioning)
-            if torch.isnan(h).any():
-                import pdb
-                pdb.set_trace()
-
-        assert not torch.isnan(h).any()
-
         h = h.type(x.dtype)
-        # if self.predict_codebook_ids:
-        #     #return self.out(h), self.id_predictor(h)
-        #     return self.id_predictor(h)
-        # else:
         return self.out(h)
 
 #

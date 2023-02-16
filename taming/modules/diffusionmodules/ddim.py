@@ -157,8 +157,8 @@ class DDIMSampler(object):
             if img_callback: img_callback(pred_x0, i)
 
             if index % log_every_t == 0 or index == total_steps - 1:
-                intermediates['x_inter'].append(img)
-                intermediates['pred_x0'].append(pred_x0)
+                intermediates['x_inter'].append(img.detach().cpu().numpy())
+                intermediates['pred_x0'].append(pred_x0.detach().cpu().numpy())
 
         return img, intermediates
 
@@ -201,9 +201,6 @@ class DDIMSampler(object):
         if noise_dropout > 0.:
             noise = torch.nn.functional.dropout(noise, p=noise_dropout)
         x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
-        if torch.isnan(x_prev).any():
-            import pdb
-            pdb.set_trace()
         return x_prev, pred_x0
 
     @torch.no_grad()

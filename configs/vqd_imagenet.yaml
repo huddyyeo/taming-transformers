@@ -37,7 +37,7 @@ model:
         - 4
         - 8
         - 16
-        num_res_blocks: 1
+        num_res_blocks: 2
         channel_mult:
         - 1
         - 2

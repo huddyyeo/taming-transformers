@@ -430,6 +430,7 @@ class VQDiffusion(DDPM):
         lr = self.learning_rate
 
         params = list(self.model.parameters())+list(self.encoder.parameters())
+        print("Num parameters in optimiser:", sum([i.numel() for i in params]))
 
         # if self.learn_logvar:
         #     print('Diffusion model optimizing logvar')

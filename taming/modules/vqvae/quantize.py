@@ -219,12 +219,11 @@ class VectorQuantizer2(nn.Module):
     # backwards compatibility we use the buggy version by default, but you can
     # specify legacy=False to fix it.
     def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
-                 sane_index_shape=False, legacy=True):
+                 sane_index_shape=False):
         super().__init__()
         self.n_e = n_e
         self.e_dim = e_dim
         self.beta = beta
-        self.legacy = legacy
 
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
@@ -287,12 +286,8 @@ class VectorQuantizer2(nn.Module):
         min_encodings = None
 
         # compute loss for embedding
-        if not self.legacy:
-            loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
-                   torch.mean((z_q - z.detach()) ** 2)
-        else:
-            loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
-                   torch.mean((z_q - z.detach()) ** 2)
+        loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
+               torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
         z_q = z + (z_q - z).detach()
@@ -334,9 +329,9 @@ class SamplingQuantizer(VectorQuantizer2):
     Improved version over VectorQuantizer2 with L2 norm and top k.
     """
     def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
-                 sane_index_shape=False, legacy=True):
+                 sane_index_shape=False):
         super().__init__(n_e, e_dim, beta, remap=remap, unknown_index=unknown_index,
-                         sane_index_shape=sane_index_shape, legacy=legacy)
+                         sane_index_shape=sane_index_shape)
 
     def normalise(self, z):
         return torch.nn.functional.normalize(z,dim=-1)
@@ -374,16 +369,12 @@ class SamplingQuantizer(VectorQuantizer2):
         perplexity = None
         min_encodings = None
 
-        # compute loss for embedding
-        if not self.legacy:
-            loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
-                   torch.mean((z_q - z.detach()) ** 2)
-        else:
-            loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
-                   torch.mean((z_q - z.detach()) ** 2)
-
         # preserve gradients
         z_q = z + (z_q - z).detach()
+
+        # compute loss for embedding
+        loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
+               torch.mean((z_q - z.detach()) ** 2)
 
         # reshape back to match original input shape
         z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()

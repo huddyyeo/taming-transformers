@@ -1,6 +1,7 @@
 model:
   base_learning_rate: 1.0e-06
   target: taming.modules.diffusionmodules.vq_diffusion.VQDiffusion
+
   params:
     linear_start: 0.0015
     linear_end: 0.0195
@@ -12,6 +13,19 @@ model:
     conditioning_key: cat_init
     monitor: val/loss_simple_ema
     ddim_timesteps: 200
+    scheduler_config:
+      target: taming.lr_scheduler.LambdaLinearScheduler
+      params:
+        warm_up_steps:
+        - 10000
+        cycle_lengths:
+        - 10000000000000
+        f_start:
+        - 1.0e-06
+        f_max:
+        - 1.0
+        f_min:
+        - 1.0
     unet_config:
       target: taming.modules.diffusionmodules.openaimodel.UNetModel
       params:
@@ -37,7 +51,7 @@ model:
       target: taming.modules.diffusionmodules.model.VQEncoder
       params:
         embed_dim: 32
-        n_embed: 8096
+        n_embed: 8192
         ddconfig:
           double_z: false
           z_channels: 256
@@ -62,6 +76,7 @@ data:
         config:
           size: 256
     validation:
+
       target: taming.data.imagenet.ImageNetValidation
       params:
         config:

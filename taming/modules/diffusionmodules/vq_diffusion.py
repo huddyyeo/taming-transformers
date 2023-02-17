@@ -187,18 +187,8 @@ class VQDiffusion(DDPM):
         loss_dict = {}
         prefix = 'train' if self.training else 'val'
 
-        if self.parameterization == "x0":
-            target = x_start
-        elif self.parameterization == "eps":
-            target = noise
-        else:
-            raise NotImplementedError()
-
-        loss_simple = self.get_loss(model_output, target, mean=False).mean([1, 2, 3])
+        loss_simple = self.get_loss(model_output, noise, mean=False).mean([1, 2, 3])
         loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})
-
-        # logvar_t = self.logvar[t].to(self.device)
-        # loss = loss_simple / torch.exp(logvar_t) + logvar_t
 
         loss = self.l_simple_weight * loss_simple.mean()
 
@@ -438,7 +428,9 @@ class VQDiffusion(DDPM):
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        params = list(self.model.parameters())
+
+        params = list(self.model.parameters())+list(self.encoder.parameters())
+
         # if self.learn_logvar:
         #     print('Diffusion model optimizing logvar')
         #     params.append(self.logvar)

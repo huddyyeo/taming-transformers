@@ -366,15 +366,14 @@ class SamplingQuantizer(VectorQuantizer2):
             min_encoding_indices = torch.argmin(d, dim=1)
 
         z_q = self.embedding(min_encoding_indices).view(z.shape)
-        perplexity = None
         min_encodings = None
-
-        # preserve gradients
-        z_q = z + (z_q - z).detach()
 
         # compute loss for embedding
         loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
                torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
 
         # reshape back to match original input shape
         z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
@@ -388,7 +387,7 @@ class SamplingQuantizer(VectorQuantizer2):
             min_encoding_indices = min_encoding_indices.reshape(
                 z_q.shape[0], z_q.shape[2], z_q.shape[3])
 
-        return z_q, loss, (perplexity, min_encodings, min_encoding_indices)
+        return z_q, loss, (z, min_encodings, min_encoding_indices)
 
 class EmbeddingEMA(nn.Module):
     def __init__(self, num_tokens, codebook_dim, decay=0.99, eps=1e-5):

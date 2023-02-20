@@ -139,16 +139,14 @@ class ImageNetTrain(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetTrain/random_crop",
                                     default=True)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/wayve")
         self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
         self.expected_length = 1281167
-
         if not bdu.is_prepared(self.root):
             # prep
             print("Preparing dataset {} in {}".format(self.NAME, self.root))
-
             datadir = self.datadir
             if not os.path.exists(datadir):
                 path = os.path.join(self.root, self.FILES[0])
@@ -199,7 +197,7 @@ class ImageNetValidation(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetValidation/random_crop",
                                     default=False)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/wayve")
 
         self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")

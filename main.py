@@ -407,7 +407,7 @@ if __name__ == "__main__":
         nowname = now+name+opt.postfix
         logdir = os.path.join("logs", nowname)
     logdir = os.path.join('/mnt/remote/data/users/hudson/taming/',logdir.split('/')[1])
-    print("Saving to "{logdir})
+    print(f"Saving to {logdir}")
     ckptdir = os.path.join(logdir, "checkpoints")
     cfgdir = os.path.join(logdir, "configs")
     seed_everything(opt.seed)

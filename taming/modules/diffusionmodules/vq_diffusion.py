@@ -119,8 +119,6 @@ class VQDiffusion(DDPM):
 
     def get_input(self, batch):
         x =batch['image']
-        assert x.min()<-0.9
-        assert x.max()>0.9
         x = rearrange(x, 'b h w c -> b c h w')
         x = x.to(memory_format=torch.contiguous_format).float()
         c = self.encoder(x)
@@ -145,6 +143,7 @@ class VQDiffusion(DDPM):
             self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False)
 
         return loss
+
     def normalize(self,x):
         return (x.clamp(-1,1)+1)/2
     def validation_step(self, batch, batch_idx):
@@ -157,17 +156,16 @@ class VQDiffusion(DDPM):
                  prog_bar=False, logger=True, sync_dist=False, on_step=True, on_epoch=False)
 
         samples, _ = self.sample_log(cond=c[0],batch_size=x.shape[0],ddim=True, ddim_steps=self.ddim_timesteps)
-
-        samples = self.normalize(samples)
+        samples = self.normalize(samples.clone())
 
         tokens = c[-1][2]
-        x = self.normalize(x)
+
+        x = self.normalize(x.clone())
 
         img = torch.cat([samples,x],dim=-2)
         img = (img.cpu().numpy()*255).astype(np.uint8)
         img = np.moveaxis(img, 1, -1)
         self.logger.experiment.add_images('val_images', img, self.global_step, dataformats='NHWC')
-        # self.logger.log_metrics({'val_images':wandb.Image(img)},self.global_step)
 
         for key_i, metric_i in self.metrics_dict.items():
             if  isinstance(metric_i,CodebookUsageMetric):

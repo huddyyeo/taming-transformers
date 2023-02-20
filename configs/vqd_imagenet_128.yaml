@@ -86,7 +86,7 @@ data:
 
 lightning:
   trainer:
-    max_epochs: 200000
+    max_steps: 200000
     gpus: 1
     val_check_interval: 50000
     log_every_n_steps: 100

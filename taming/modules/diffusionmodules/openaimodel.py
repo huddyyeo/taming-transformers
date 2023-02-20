@@ -510,7 +510,7 @@ class UNetModel(nn.Module):
                     conv_nd(dims, in_channels, model_channels, 3, padding=1)
                 )
         self.cond_conv = nn.ModuleList([conv_nd(dims,context_dim,model_channels,3,padding=1),
-                                        ])
+                                        conv_nd(dims,context_dim,model_channels,3,padding=1),])
         self.input_blocks = nn.ModuleList([])
         self._feature_size = model_channels
         ds = 1
@@ -578,9 +578,10 @@ class UNetModel(nn.Module):
         dim_head = ch // num_heads
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
-                ch,
+                ch+model_channels,
                 time_embed_dim,
                 dropout,
+                out_channels=ch,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
@@ -714,13 +715,17 @@ class UNetModel(nn.Module):
         h = self.input_conv(h, emb, conditioning)
 
         # cat in context
-        cond_input = nn.functional.interpolate(conditioning, size=h.shape[-2:], mode='bicubic', align_corners=True)
+        cond_input = nn.functional.interpolate(conditioning, size=h.shape[-2:], mode='bilinear', align_corners=True)
         h = torch.cat([h, self.cond_conv[0](cond_input)], dim=1)
-        assert not torch.isnan(h).any()
         hs.append(h)
+
         for module in self.input_blocks:
             h = module(h, emb, conditioning)
             hs.append(h)
+
+        cond_input2 = nn.functional.interpolate(conditioning, size=h.shape[-2:], mode='bilinear', align_corners=True)
+        h = torch.cat([h, self.cond_conv[1](cond_input2)], dim=1)
+
         h = self.middle_block(h, emb, conditioning)
         assert not torch.isnan(h).any()
         for module in self.output_blocks:

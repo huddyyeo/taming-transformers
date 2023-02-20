@@ -596,11 +596,16 @@ if __name__ == "__main__":
         #signal.signal(signal.SIGUSR2, divein)
         # run
         if opt.train:
-            try:
+            if not opt.debug:
                 trainer.fit(model, data)
-            except Exception as e:
-                melk()
-                raise e
+            else:
+                try:
+                    trainer.fit(model, data)
+                except Exception as e:
+                    print(e)
+                    melk()
+                    raise e
+            melk()
         if not opt.no_test and not trainer.interrupted:
             trainer.validate(model, data)
     except Exception as e:

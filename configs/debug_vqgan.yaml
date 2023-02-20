@@ -28,18 +28,18 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 6
-    num_workers: 0
+    batch_size: 32
+    num_workers: 24
     train:
       target: taming.data.imagenet.ImageNetTrain
       params:
         config:
-          size: 256
+          size: 128
     validation:
       target: taming.data.imagenet.ImageNetValidation
       params:
         config:
-          size: 256
+          size: 128
 lightning:
   trainer:
     max_steps: 5

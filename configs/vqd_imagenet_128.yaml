@@ -32,8 +32,9 @@ model:
         image_size: 256
         in_channels: 3
         out_channels: 3
-        model_channels: 64
+        model_channels: 128
         attention_resolutions:
+        - 2
         - 4
         - 8
         - 16

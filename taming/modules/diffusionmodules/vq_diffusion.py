@@ -19,11 +19,9 @@ from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
 import torchmetrics
 from taming.modules.diffusionmodules.ddpm import DDPM
+from taming.modules.losses.lpips import LPIPS
 from taming.modules.metrics.metrics import CodebookUsageMetric, FIDMetric
 from taming.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
-from taming.modules.ema import LitEma
-from taming.models.vqgan import VQModelInterface
-from taming.modules.diffusionmodules.util import make_beta_schedule, extract_into_tensor, noise_like
 from taming.modules.diffusionmodules.ddim import DDIMSampler
 
 
@@ -37,6 +35,7 @@ class VQDiffusion(DDPM):
                  conditioning_key=None,
                  scale_factor=1.0,
                  scale_by_std=False,
+                 lpips_weight=0.0,
                  *args, **kwargs):
         self.num_timesteps_cond = default(num_timesteps_cond, 1)
         self.scale_by_std = scale_by_std
@@ -61,7 +60,9 @@ class VQDiffusion(DDPM):
         self.cond_stage_forward = cond_stage_forward
         self.clip_denoised = False
         self.bbox_tokenizer = None
-
+        self.lpips_weight = lpips_weight
+        if self.lpips_weight > 0.0:
+            self.perceptual_loss = LPIPS().eval()
         self.metrics_dict = torch.nn.ModuleDict({"PSNR":torchmetrics.PeakSignalNoiseRatio(data_range=1.0),
                              "FID":FIDMetric(),
                              #"Inception":InceptionMetric()
@@ -118,6 +119,8 @@ class VQDiffusion(DDPM):
 
     def get_input(self, batch):
         x =batch['image']
+        assert x.min()<-0.9
+        assert x.max()>0.9
         x = rearrange(x, 'b h w c -> b c h w')
         x = x.to(memory_format=torch.contiguous_format).float()
         c = self.encoder(x)
@@ -154,6 +157,7 @@ class VQDiffusion(DDPM):
                  prog_bar=False, logger=True, sync_dist=False, on_step=True, on_epoch=False)
 
         samples, _ = self.sample_log(cond=c[0],batch_size=x.shape[0],ddim=True, ddim_steps=self.ddim_timesteps)
+
         samples = self.normalize(samples)
 
         tokens = c[-1][2]
@@ -200,6 +204,14 @@ class VQDiffusion(DDPM):
 
         loss += cond[1]
         loss_dict.update({f'{prefix}/embedding_loss': cond[1]})
+
+        inverse_image = self.inverse_q_sample(x_noisy,t,model_output)
+        if self.lpips_weight > 0.0:
+
+            perceptual_loss = self.perceptual_loss(inverse_image,x_start)
+            loss += perceptual_loss
+            loss_dict.update({f'{prefix}/perceptual_loss': perceptual_loss})
+
         return loss, loss_dict
 
     @torch.no_grad()

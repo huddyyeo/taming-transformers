@@ -1,14 +1,13 @@
 model:
   base_learning_rate: 1.0e-06
   target: taming.modules.diffusionmodules.vq_diffusion.VQDiffusion
-
   params:
     linear_start: 0.0015
     linear_end: 0.0195
     num_timesteps_cond: 1
     log_every_t: 200
     timesteps: 1000
-    image_size: 256
+    image_size: 128
     channels: 3
     conditioning_key: cat_init
     monitor: val/loss_simple_ema
@@ -26,13 +25,14 @@ model:
         - 1.0
         f_min:
         - 1.0
+    loss_type: mixed
     unet_config:
       target: taming.modules.diffusionmodules.openaimodel.UNetModel
       params:
         image_size: 256
         in_channels: 3
         out_channels: 3
-        model_channels: 32
+        model_channels: 64
         attention_resolutions:
         - 4
         - 8
@@ -58,7 +58,7 @@ model:
           resolution: 256
           in_channels: 3
           out_ch: 3
-          ch: 32
+          ch: 128
           ch_mult: [ 1,1,2,2,4]
           num_res_blocks: 2
           attn_resolutions: [16]
@@ -67,26 +67,26 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 2
-    num_workers: 0
+    batch_size: 6
+    num_workers: 24
     wrap: false
     train:
       target: taming.data.imagenet.ImageNetTrain
       params:
         config:
-          size: 256
+          size: 128
     validation:
 
       target: taming.data.imagenet.ImageNetValidation
       params:
         config:
-          size: 256
+          size: 128
 
 lightning:
   trainer:
-    max_steps: 5
-    gpus: '1,'
-    val_check_interval: 5
-    limit_val_batches: 2
-    log_every_n_steps: 1
+    max_epochs: 5
+    gpus: '2,3,4,5'
+    val_check_interval: 20000
+    log_every_n_steps: 100
     num_sanity_val_steps: 0
+    limit_val_batches: 25

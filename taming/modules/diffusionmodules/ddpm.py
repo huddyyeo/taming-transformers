@@ -46,7 +46,7 @@ class DDPM(pl.LightningModule):
                  unet_config,
                  timesteps=1000,
                  beta_schedule="linear",
-                 loss_type="l1",
+                 loss_type="mixed",
                  ckpt_path=None,
                  ignore_keys=[],
                  load_only_unet=False,
@@ -269,6 +269,11 @@ class DDPM(pl.LightningModule):
         return (extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
                 extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
 
+    def inverse_q_sample(self, noisy_image, t, noise):
+        return (noisy_image - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t,
+                                           noisy_image.shape) * noise) / extract_into_tensor(self.sqrt_alphas_cumprod,
+                                                                                             t, noisy_image.shape)
+
     def get_loss(self, pred, target, mean=True):
         if self.loss_type == 'l1':
             loss = (target - pred).abs()
@@ -279,6 +284,10 @@ class DDPM(pl.LightningModule):
                 loss = torch.nn.functional.mse_loss(target, pred)
             else:
                 loss = torch.nn.functional.mse_loss(target, pred, reduction='none')
+        elif self.loss_type == 'mixed':
+            loss = 0.1 * (target - pred).abs() + torch.nn.functional.mse_loss(target, pred, reduction='none')
+            if mean:
+                loss = loss.mean()
         else:
             raise NotImplementedError("unknown loss type '{loss_type}'")
 

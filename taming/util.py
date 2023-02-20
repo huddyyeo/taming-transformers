@@ -30,6 +30,11 @@ from inspect import isfunction
 from PIL import Image, ImageDraw, ImageFont
 
 
+def freeze_network(network):
+    for p in network.parameters():
+        p.requires_grad = False
+    network.eval()
+
 def log_txt_as_img(wh, xc, size=10):
     # wh a tuple of (width, height)
     # xc a list of captions to plot

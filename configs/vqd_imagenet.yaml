@@ -1,7 +1,6 @@
 model:
   base_learning_rate: 1.0e-06
   target: taming.modules.diffusionmodules.vq_diffusion.VQDiffusion
-
   params:
     linear_start: 0.0015
     linear_end: 0.0195
@@ -26,6 +25,7 @@ model:
         - 1.0
         f_min:
         - 1.0
+    loss_type: mixed
     unet_config:
       target: taming.modules.diffusionmodules.openaimodel.UNetModel
       params:

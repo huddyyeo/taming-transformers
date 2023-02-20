@@ -406,7 +406,8 @@ if __name__ == "__main__":
             name = ""
         nowname = now+name+opt.postfix
         logdir = os.path.join("logs", nowname)
-    logdir = os.path.join('/mnt/remote/data/users/hudson/taming/',logdir.split('/')[1])
+    if not opt.debug:
+        logdir = os.path.join('/mnt/remote/data/users/hudson/taming/',logdir.split('/')[1])
     print(f"Saving to {logdir}")
     ckptdir = os.path.join(logdir, "checkpoints")
     cfgdir = os.path.join(logdir, "configs")
@@ -604,8 +605,10 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(e)
                     melk()
+                    import pdb
+                    pdb.set_trace()
                     raise e
-            melk()
+
         if not opt.no_test and not trainer.interrupted:
             trainer.validate(model, data)
     except Exception as e:

@@ -139,7 +139,7 @@ class ImageNetTrain(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetTrain/random_crop",
                                     default=True)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/wayve")
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
         self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")
         self.txt_filelist = os.path.join(self.root, "filelist.txt")
@@ -197,7 +197,7 @@ class ImageNetValidation(ImageNetBase):
         self.random_crop = retrieve(self.config, "ImageNetValidation/random_crop",
                                     default=False)
         # cachedir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
-        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/wayve")
+        cachedir = os.environ.get("XDG_CACHE_HOME", "/home/hudson")
 
         self.root = os.path.join(cachedir, "imagenet/data", self.NAME)
         self.datadir = os.path.join(self.root, "data")

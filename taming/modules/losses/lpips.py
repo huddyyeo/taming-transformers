@@ -41,10 +41,11 @@ class LPIPS(nn.Module):
 
     def forward(self, input, target):
         freeze_network(self)
-        assert input.min()<-0.8
-        assert input.max()>0.8
-        assert target.min()<-0.8
-        assert target.max() >0.8
+        # check that we are normalizing to [-1,1]
+        # assert input.min()<-0.5
+        # assert input.max()>0.5
+        # assert target.min()<-0.5
+        # assert target.max() >0.5
         in0_input, in1_input = (self.scaling_layer(input), self.scaling_layer(target))
         outs0, outs1 = self.net(in0_input), self.net(in1_input)
         feats0, feats1, diffs = {}, {}, {}

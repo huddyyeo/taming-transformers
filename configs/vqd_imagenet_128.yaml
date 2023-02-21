@@ -92,4 +92,4 @@ lightning:
     val_check_interval: 1.0
     log_every_n_steps: 100
     num_sanity_val_steps: 0
-    limit_val_batches: 25
+    limit_val_batches: 50

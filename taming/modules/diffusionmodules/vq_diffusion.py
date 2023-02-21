@@ -206,8 +206,8 @@ class VQDiffusion(DDPM):
         inverse_image = self.inverse_q_sample(x_noisy,t,model_output)
         if self.lpips_weight > 0.0:
 
-            perceptual_loss = self.perceptual_loss(x_start,inverse_image)
-            loss += perceptual_loss
+            perceptual_loss = self.perceptual_loss(x_start,inverse_image).mean()
+            loss += perceptual_loss * self.lpips_weight
             loss_dict.update({f'{prefix}/perceptual_loss': perceptual_loss})
 
         return loss, loss_dict

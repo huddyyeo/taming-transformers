@@ -48,6 +48,7 @@ model:
         use_spatial_transformer: false
         transformer_depth: 1
         context_dim: 32
+    lpips_weight: 0.1
     encoder_config:
       target: taming.modules.diffusionmodules.model.VQEncoder
       params:
@@ -86,7 +87,7 @@ data:
 lightning:
   trainer:
     max_steps: 5
-    gpus: '0,'
+    gpus: '1,'
     val_check_interval: 5
     limit_val_batches: 2
     log_every_n_steps: 1

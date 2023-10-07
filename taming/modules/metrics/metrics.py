@@ -13,11 +13,13 @@ class FIDMetric(FrechetInceptionDistance):
         super().update(pred,real=False)
         super().update(gt, real=True )
 
+
 class InceptionMetric(InceptionScore):
     def update(self, pred, gt):
         del gt
         pred = (pred * 255).to(torch.uint8).view(-1, *pred.shape[-3:])
         super().update(pred)
+
 
 class CodebookUsageMetric(torchmetrics.Metric):
     def __init__(self, codebook_size):

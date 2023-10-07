@@ -386,12 +386,12 @@ class VQEncoder(nn.Module):
         if monitor is not None:
             self.monitor = monitor
 
-
     def forward(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
+
 
 class Encoder(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,

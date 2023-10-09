@@ -33,12 +33,9 @@ class VQDiffusion(DDPM):
                  concat_mode=True,
                  cond_stage_forward=None,
                  conditioning_key=None,
-                 scale_factor=1.0,
-                 scale_by_std=False,
                  lpips_weight=0.0,
                  *args, **kwargs):
         self.num_timesteps_cond = default(num_timesteps_cond, 1)
-        self.scale_by_std = scale_by_std
         assert self.num_timesteps_cond <= kwargs['timesteps']
         # for backwards compatibility after implementation of DiffusionWrapper
         if conditioning_key is None:
@@ -51,10 +48,6 @@ class VQDiffusion(DDPM):
             self.num_downs = len(encoder_config.params.ddconfig.ch_mult) - 1
         except:
             self.num_downs = 0
-        if not scale_by_std:
-            self.scale_factor = scale_factor
-        else:
-            self.register_buffer('scale_factor', torch.tensor(scale_factor))
 
         self.encoder = instantiate_from_config(encoder_config)
         self.cond_stage_forward = cond_stage_forward

@@ -10,7 +10,6 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
-
 from taming.data.utils import custom_collate
 
 
@@ -163,16 +162,16 @@ class DataModuleFromConfig(pl.LightningDataModule):
 
     def _train_dataloader(self):
         return DataLoader(self.datasets["train"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate)
+                          num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
     def _val_dataloader(self):
         return DataLoader(self.datasets["validation"],
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
     def _test_dataloader(self):
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,
-                          num_workers=self.num_workers, collate_fn=custom_collate)
+                          num_workers=self.num_workers, collate_fn=custom_collate, persistent_workers = True if self.num_workers>0 else False)
 
 
 class SetupCallback(Callback):
@@ -204,15 +203,16 @@ class SetupCallback(Callback):
                            os.path.join(self.cfgdir, "{}-lightning.yaml".format(self.now)))
 
         else:
-            # ModelCheckpoint callback created log directory --- remove it
-            if not self.resume and os.path.exists(self.logdir):
-                dst, name = os.path.split(self.logdir)
-                dst = os.path.join(dst, "child_runs", name)
-                os.makedirs(os.path.split(dst)[0], exist_ok=True)
-                try:
-                    os.rename(self.logdir, dst)
-                except FileNotFoundError:
-                    pass
+            pass
+            # # ModelCheckpoint callback created log directory --- remove it
+            # if not self.resume and os.path.exists(self.logdir):
+            #     dst, name = os.path.split(self.logdir)
+            #     dst = os.path.join(dst, "child_runs", name)
+            #     os.makedirs(os.path.split(dst)[0], exist_ok=True)
+            #     try:
+            #         os.rename(self.logdir, dst)
+            #     except FileNotFoundError:
+            #         pass
 
 
 class ImageLogger(Callback):
@@ -231,10 +231,9 @@ class ImageLogger(Callback):
 
     @rank_zero_only
     def _wandb(self, pl_module, images, batch_idx, split):
-        raise ValueError("No way wandb")
         grids = dict()
         for k in images:
-            grid = torchvision.utils.make_grid(images[k])
+            grid = torchvision.utils.make_grid(images[k].clamp(-1,1),normalize=True,value_range=(-1,1))
             grids[f"{split}/{k}"] = wandb.Image(grid)
         pl_module.logger.experiment.log(grids)
 
@@ -294,7 +293,7 @@ class ImageLogger(Callback):
             self.log_local(pl_module.logger.save_dir, split, images,
                            pl_module.global_step, pl_module.current_epoch, batch_idx)
 
-            logger_log_images = self.logger_log_images.get(logger, lambda *args, **kwargs: None)
+            logger_log_images = self.logger_log_images.get(logger,lambda *args, **kwargs: None)
             logger_log_images(pl_module, images, pl_module.global_step, split)
 
             if is_train:
@@ -309,15 +308,16 @@ class ImageLogger(Callback):
             return True
         return False
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        self.log_img(pl_module, batch, batch_idx, split="train")
-
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        self.log_img(pl_module, batch, batch_idx, split="val")
+    # def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    #     self.log_img(pl_module, batch, batch_idx, split="train")
+    #
+    # def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    #     self.log_img(pl_module, batch, batch_idx, split="val")
 
 
 
 if __name__ == "__main__":
+
     # custom parser to specify config files, train, test and debug mode,
     # postfix, resume.
     # `--key value` arguments are interpreted as arguments to the trainer.
@@ -370,6 +370,7 @@ if __name__ == "__main__":
     parser = Trainer.add_argparse_args(parser)
 
     opt, unknown = parser.parse_known_args()
+
     if opt.name and opt.resume:
         raise ValueError(
             "-n/--name and -r/--resume cannot be specified both."
@@ -405,7 +406,9 @@ if __name__ == "__main__":
             name = ""
         nowname = now+name+opt.postfix
         logdir = os.path.join("logs", nowname)
-
+    if not opt.debug:
+        logdir = os.path.join('/mnt/remote/data/users/hudson/taming/',logdir.split('/')[1])
+    print(f"Saving to {logdir}")
     ckptdir = os.path.join(logdir, "checkpoints")
     cfgdir = os.path.join(logdir, "configs")
     seed_everything(opt.seed)
@@ -432,8 +435,26 @@ if __name__ == "__main__":
         trainer_opt = argparse.Namespace(**trainer_config)
         lightning_config.trainer = trainer_config
 
-        # model
-        model = instantiate_from_config(config.model)
+        if lightning_config.modelcheckpoint is not None:
+            cfg_path = os.path.join(lightning_config.modelcheckpoint,'configs/model.yaml')
+            modelckpt_cfg =  OmegaConf.load(cfg_path)
+            config.model = modelckpt_cfg['model']
+            model = instantiate_from_config(config.model)
+
+            ckpt_path = os.path.join(lightning_config.modelcheckpoint, 'ckpts/last.ckpt')
+            ckpt = torch.load(ckpt_path)
+            ckpt_sd = ckpt['state_dict']
+            model_sd = model.state_dict()
+            missing_keys = [i for i in model_sd.keys() if i not in ckpt_sd.keys()]
+
+            if len(missing_keys)>0:
+                for key in missing_keys: ckpt_sd[key] = model_sd[key]
+                print(f"Initialised from checkpoint, replaced {len(missing_keys)} missing keys pertaining to ", np.unique([i.split('.')[0] for i in missing_keys]).tolist())
+            model.load_state_dict(ckpt['state_dict'],strict=False)
+
+        else:
+            modelckpt_cfg = OmegaConf.create()
+            model = instantiate_from_config(config.model)
 
         # trainer and callbacks
         trainer_kwargs = dict()
@@ -460,11 +481,18 @@ if __name__ == "__main__":
                     "save_dir": logdir,
                 }
             },
+            "tensorboard": {
+                "target": "pytorch_lightning.loggers.TensorBoardLogger",
+                "params": {
+                    "name": nowname,
+                    "save_dir": logdir,
+                }
+            },
         }
-        default_logger_cfg = default_logger_cfgs["testtube"]
-        logger_cfg = lightning_config.logger or OmegaConf.create()
-        logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
-        trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
+        default_logger_cfg = default_logger_cfgs["tensorboard"]
+        #logger_cfg = lightning_config.logger or OmegaConf.create()
+        #logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
+        trainer_kwargs["logger"] = instantiate_from_config(default_logger_cfg)
 
         # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
         # specify which metric is used to determine best models
@@ -475,16 +503,16 @@ if __name__ == "__main__":
                 "filename": "{epoch:06}",
                 "verbose": True,
                 "save_last": True,
+                "every_n_train_steps":20000,
             }
         }
         if hasattr(model, "monitor"):
             print(f"Monitoring {model.monitor} as checkpoint metric.")
             default_modelckpt_cfg["params"]["monitor"] = model.monitor
-            default_modelckpt_cfg["params"]["save_top_k"] = 3
+            #default_modelckpt_cfg["params"]["save_top_k"] = 3
 
-        modelckpt_cfg = lightning_config.modelcheckpoint or OmegaConf.create()
         modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
-        trainer_kwargs["checkpoint_callback"] = instantiate_from_config(modelckpt_cfg)
+        trainer_kwargs["enable_checkpointing"] = instantiate_from_config(modelckpt_cfg)
 
         # add callback which sets up log directory
         default_callbacks_cfg = {
@@ -520,7 +548,7 @@ if __name__ == "__main__":
         callbacks_cfg = OmegaConf.merge(default_callbacks_cfg, callbacks_cfg)
         trainer_kwargs["callbacks"] = [instantiate_from_config(callbacks_cfg[k]) for k in callbacks_cfg]
 
-        trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+        trainer = Trainer.from_argparse_args(trainer_opt, accelerator='gpu', **trainer_kwargs)
 
         # data
         data = instantiate_from_config(config.data)
@@ -532,8 +560,12 @@ if __name__ == "__main__":
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
+
         if not cpu:
-            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
+            if isinstance(lightning_config.trainer.gpus, int):
+                ngpu = lightning_config.trainer.gpus
+            else:
+                ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
         else:
             ngpu = 1
         accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches or 1
@@ -549,33 +581,46 @@ if __name__ == "__main__":
             if trainer.global_rank == 0:
                 print("Summoning checkpoint.")
                 ckpt_path = os.path.join(ckptdir, "last.ckpt")
-                trainer.save_checkpoint(ckpt_path)
 
-        def divein(*args, **kwargs):
-            if trainer.global_rank == 0:
-                import pudb; pudb.set_trace()
+                if trainer.model is None:
+                    print("Trainer model is None")
+                else:
+                    print("Saved checkpoint at ", ckpt_path)
+                    trainer.save_checkpoint(ckpt_path)
+        #
+        # def divein(*args, **kwargs):
+        #     if trainer.global_rank == 0:
+        #         import pudb; pudb.set_trace()
 
-        import signal
-        signal.signal(signal.SIGUSR1, melk)
-        signal.signal(signal.SIGUSR2, divein)
-
+        # import signal
+        # signal.signal(signal.SIGUSR1, melk)
+        #signal.signal(signal.SIGUSR2, divein)
         # run
         if opt.train:
-            try:
+            if not opt.debug:
                 trainer.fit(model, data)
-            except Exception:
-                melk()
-                raise
+            else:
+                try:
+                    trainer.fit(model, data)
+                except Exception as e:
+                    print(e)
+                    melk()
+                    import pdb
+                    pdb.set_trace()
+                    raise e
+
         if not opt.no_test and not trainer.interrupted:
-            trainer.test(model, data)
-    except Exception:
+            trainer.validate(model, data)
+    except Exception as e:
+        print('exception',e)
         if opt.debug and trainer.global_rank==0:
             try:
                 import pudb as debugger
             except ImportError:
                 import pdb as debugger
-            debugger.post_mortem()
+                pdb.set_trace()
         raise
+
     finally:
         # move newly created debug project to debug_runs
         if opt.debug and not opt.resume and trainer.global_rank==0:

@@ -219,12 +219,11 @@ class VectorQuantizer2(nn.Module):
     # backwards compatibility we use the buggy version by default, but you can
     # specify legacy=False to fix it.
     def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
-                 sane_index_shape=False, legacy=True):
+                 sane_index_shape=False):
         super().__init__()
         self.n_e = n_e
         self.e_dim = e_dim
         self.beta = beta
-        self.legacy = legacy
 
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
@@ -287,12 +286,8 @@ class VectorQuantizer2(nn.Module):
         min_encodings = None
 
         # compute loss for embedding
-        if not self.legacy:
-            loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
-                   torch.mean((z_q - z.detach()) ** 2)
-        else:
-            loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
-                   torch.mean((z_q - z.detach()) ** 2)
+        loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
+               torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
         z_q = z + (z_q - z).detach()
@@ -328,6 +323,72 @@ class VectorQuantizer2(nn.Module):
 
         return z_q
 
+
+class SamplingQuantizer(VectorQuantizer2):
+    """
+    Improved version over VectorQuantizer2 with L2 norm and top k.
+    """
+    def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
+                 sane_index_shape=False):
+        super().__init__(n_e, e_dim, beta, remap=remap, unknown_index=unknown_index,
+                         sane_index_shape=sane_index_shape)
+
+    def normalise(self, z):
+        return torch.nn.functional.normalize(z,dim=-1)
+
+    def forward(self, z, temp=None, rescale_logits=False, return_logits=False, sample=True):
+        assert temp is None or temp==1.0, "Only for interface compatible with Gumbel"
+        assert rescale_logits==False, "Only for interface compatible with Gumbel"
+        assert return_logits==False, "Only for interface compatible with Gumbel"
+        # reshape z -> (batch, height, width, channel) and flatten
+        z = rearrange(z, 'b c h w -> b h w c').contiguous()
+        z_flattened = z.view(-1, self.e_dim)
+
+        z_search = self.normalise(z_flattened)
+        normalized_embedding = self.normalise(self.embedding.weight)
+
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+        d = torch.sum(z_search ** 2, dim=1, keepdim=True) + \
+            torch.sum(normalized_embedding **2, dim=1) - 2 * \
+            torch.einsum('bd,dn->bn', z_search, rearrange(normalized_embedding, 'n d -> d n'))
+
+        if sample and self.training:
+            logits = 1 / d.clamp(min=1e-8) # dist may go close to 0
+            logits = logits - logits.amax(dim=-1, keepdim=True).detach()  # numerical stability for softmax
+            v, _ = torch.topk(logits,16,dim=-1)
+            min_logit_per_token = v.min(-1)[0].unsqueeze(-1)
+            min_logit_per_token = min_logit_per_token.repeat(1,logits.shape[-1])
+            logits[logits<min_logit_per_token] = -float('Inf')
+
+            probs = torch.nn.functional.softmax(logits/0.5, dim=-1)
+            min_encoding_indices = torch.multinomial(probs, num_samples=1).squeeze()
+        else:
+            min_encoding_indices = torch.argmin(d, dim=1)
+
+        z_q = self.embedding(min_encoding_indices).view(z.shape)
+        min_encodings = None
+
+        # compute loss for embedding
+        loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
+               torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
+
+        # reshape back to match original input shape
+        z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
+
+        if self.remap is not None:
+            min_encoding_indices = min_encoding_indices.reshape(z.shape[0],-1) # add batch axis
+            min_encoding_indices = self.remap_to_used(min_encoding_indices)
+            min_encoding_indices = min_encoding_indices.reshape(-1,1) # flatten
+
+        if self.sane_index_shape:
+            min_encoding_indices = min_encoding_indices.reshape(
+                z_q.shape[0], z_q.shape[2], z_q.shape[3])
+
+        return z_q, loss, (z, min_encodings, min_encoding_indices)
+
 class EmbeddingEMA(nn.Module):
     def __init__(self, num_tokens, codebook_dim, decay=0.99, eps=1e-5):
         super().__init__()
@@ -356,90 +417,3 @@ class EmbeddingEMA(nn.Module):
         #normalize embedding average with smoothed cluster size
         embed_normalized = self.embed_avg / smoothed_cluster_size.unsqueeze(1)
         self.weight.data.copy_(embed_normalized)   
-
-
-class EMAVectorQuantizer(nn.Module):
-    def __init__(self, n_embed, embedding_dim, beta, decay=0.99, eps=1e-5,
-                remap=None, unknown_index="random"):
-        super().__init__()
-        self.codebook_dim = codebook_dim
-        self.num_tokens = num_tokens
-        self.beta = beta
-        self.embedding = EmbeddingEMA(self.num_tokens, self.codebook_dim, decay, eps)
-
-        self.remap = remap
-        if self.remap is not None:
-            self.register_buffer("used", torch.tensor(np.load(self.remap)))
-            self.re_embed = self.used.shape[0]
-            self.unknown_index = unknown_index # "random" or "extra" or integer
-            if self.unknown_index == "extra":
-                self.unknown_index = self.re_embed
-                self.re_embed = self.re_embed+1
-            print(f"Remapping {self.n_embed} indices to {self.re_embed} indices. "
-                  f"Using {self.unknown_index} for unknown indices.")
-        else:
-            self.re_embed = n_embed
-
-    def remap_to_used(self, inds):
-        ishape = inds.shape
-        assert len(ishape)>1
-        inds = inds.reshape(ishape[0],-1)
-        used = self.used.to(inds)
-        match = (inds[:,:,None]==used[None,None,...]).long()
-        new = match.argmax(-1)
-        unknown = match.sum(2)<1
-        if self.unknown_index == "random":
-            new[unknown]=torch.randint(0,self.re_embed,size=new[unknown].shape).to(device=new.device)
-        else:
-            new[unknown] = self.unknown_index
-        return new.reshape(ishape)
-
-    def unmap_to_all(self, inds):
-        ishape = inds.shape
-        assert len(ishape)>1
-        inds = inds.reshape(ishape[0],-1)
-        used = self.used.to(inds)
-        if self.re_embed > self.used.shape[0]: # extra token
-            inds[inds>=self.used.shape[0]] = 0 # simply set to zero
-        back=torch.gather(used[None,:][inds.shape[0]*[0],:], 1, inds)
-        return back.reshape(ishape)
-
-    def forward(self, z):
-        # reshape z -> (batch, height, width, channel) and flatten
-        #z, 'b c h w -> b h w c'
-        z = rearrange(z, 'b c h w -> b h w c')
-        z_flattened = z.reshape(-1, self.codebook_dim)
-        
-        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
-        d = z_flattened.pow(2).sum(dim=1, keepdim=True) + \
-            self.embedding.weight.pow(2).sum(dim=1) - 2 * \
-            torch.einsum('bd,nd->bn', z_flattened, self.embedding.weight) # 'n d -> d n'
-
-
-        encoding_indices = torch.argmin(d, dim=1)
-
-        z_q = self.embedding(encoding_indices).view(z.shape)
-        encodings = F.one_hot(encoding_indices, self.num_tokens).type(z.dtype)     
-        avg_probs = torch.mean(encodings, dim=0)
-        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
-
-        if self.training and self.embedding.update:
-            #EMA cluster size
-            encodings_sum = encodings.sum(0)            
-            self.embedding.cluster_size_ema_update(encodings_sum)
-            #EMA embedding average
-            embed_sum = encodings.transpose(0,1) @ z_flattened            
-            self.embedding.embed_avg_ema_update(embed_sum)
-            #normalize embed_avg and update weight
-            self.embedding.weight_update(self.num_tokens)
-
-        # compute loss for embedding
-        loss = self.beta * F.mse_loss(z_q.detach(), z) 
-
-        # preserve gradients
-        z_q = z + (z_q - z).detach()
-
-        # reshape back to match original input shape
-        #z_q, 'b h w c -> b c h w'
-        z_q = rearrange(z_q, 'b h w c -> b c h w')
-        return z_q, loss, (perplexity, encodings, encoding_indices)

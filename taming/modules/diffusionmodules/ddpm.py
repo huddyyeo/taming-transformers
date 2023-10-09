@@ -285,6 +285,8 @@ class DDPM(pl.LightningModule):
             else:
                 loss = torch.nn.functional.mse_loss(target, pred, reduction='none')
         elif self.loss_type == 'mixed':
+            # this loss matches that of https://openreview.net/forum?id=pfNyExj7z2
+            # so we can compare to VQGAN
             loss = 0.1 * (target - pred).abs() + torch.nn.functional.mse_loss(target, pred, reduction='none')
             if mean:
                 loss = loss.mean()

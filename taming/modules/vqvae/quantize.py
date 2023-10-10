@@ -355,7 +355,7 @@ class SamplingQuantizer(VectorQuantizer2):
         if sample and self.training:
             logits = 1 / d.clamp(min=1e-8) # dist may go close to 0
             logits = logits - logits.amax(dim=-1, keepdim=True).detach()  # numerical stability for softmax
-            v, _ = torch.topk(logits,16,dim=-1)
+            v, _ = torch.topk(logits, 16, dim=-1)
             min_logit_per_token = v.min(-1)[0].unsqueeze(-1)
             min_logit_per_token = min_logit_per_token.repeat(1,logits.shape[-1])
             logits[logits<min_logit_per_token] = -float('Inf')

@@ -6,16 +6,17 @@ This project builds on top of the Taming Transformers repo, adding in a UNet and
 ![teaser](assets/VQD.png)
 The goal of this project was to investigate an alternative to image reconstruction as a task for training an encoder.
 
-In short this project utilised a standard diffusion model that is attached to a VQ encoder. The goal was to train the model from scratch, leading to a trained VQ encoder.
+In short this project utilises a standard diffusion model that is attached to a VQ encoder. The goal was to train the model from scratch, leading to a trained VQ encoder.
 
 By replacing the reconstruction and GAN loss with a diffusion based loss, we hypothesized it would lead to better semantics learning. 
 We hypothesized the diffusion based loss already had access to high frequency features from the noised image, leading the encoder to learn to extract low-frequency features such as segmentation or depth.
 
-The main code contributions are held in `vq_diffusion.py`. 
+The main code contributions are held in `taming/modules/diffusionmodules/vq_diffusion.py`. 
 Two other novel contributions that were added are:
-1)  `SamplingQuantizer `
-2)  LPIPS loss for adding semantics
+1)  `SamplingQuantizer` for top-k sampling in the quantising step, in `taming/modules/vqvae/quantize.py` 
+2)  LPIPS loss for adding semantics, in `taming/modules/diffusionmodules/vq_diffusion.py`
 
+A recommended config file for ImageNet can be found in `configs/vqd_imagenet.yaml`
 
 # Taming Transformers for High-Resolution Image Synthesis
 ##### CVPR 2021 (Oral)
